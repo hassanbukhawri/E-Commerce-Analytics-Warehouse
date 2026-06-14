@@ -1,0 +1,18 @@
+# Local data dumps (CSVs)
+data/
+*.csv
+
+# Security & Credentials
+.env
+.env.*
+
+# Python environment & cache
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# IDE settings
+.vscode/
+.idea/

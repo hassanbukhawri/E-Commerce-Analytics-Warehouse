@@ -1,0 +1,96 @@
+version: "3.9"
+
+# =============================================================
+# E-Commerce Data Warehouse — Full Stack Docker Compose
+# Services: PostgreSQL 15  +  Streamlit Analytics App
+#
+# Usage:
+#   1. python generate_data.py          # create ./data/ CSVs
+#   2. docker compose up -d             # start both services
+#   3. docker compose exec db psql \
+#        -U postgres -d ecommerce_dw \
+#        -f /docker-entrypoint-initdb.d/schema.sql
+#      (or it runs automatically on first boot)
+#   4. Open http://localhost:8501
+# =============================================================
+
+services:
+
+  # ── PostgreSQL 15 ─────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: ecommerce_dw_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ecommerce_dw
+      POSTGRES_USER:     postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      # Persist data across container restarts
+      - pg_data:/var/lib/postgresql/data
+      # Auto-run SQL on first boot (alphabetical order)
+      - ./schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+      - ./procedures.sql:/docker-entrypoint-initdb.d/02_procedures.sql:ro
+      # Mount generated CSVs so COPY can read them
+      - ./data:/data:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ecommerce_dw"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - dw_network
+
+  # ── Streamlit App ──────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ecommerce_dw_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Override DB_HOST to use Docker service name
+      DB_HOST: db
+    ports:
+      - "8501:8501"
+    volumes:
+      # Hot-reload: mount app.py so you can edit without rebuild
+      - ./app.py:/app/app.py:ro
+    networks:
+      - dw_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+# ── pgAdmin 4 ──────────────────────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: ecommerce_dw_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@analytics.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8085:80"
+    networks:
+      - dw_network
+
+volumes:
+  pg_data:
+    name: ecommerce_dw_pgdata
+
+networks:
+  dw_network:
+    name: ecommerce_dw_net
+    driver: bridge
